@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sajil's Personal Budget Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"></script>
+  <style>
+    body { 
+      background-color: #2D3748; 
+      color: #D2B48C; 
+      font-family: 'Inter', sans-serif; 
+    }
+    .nav-btn { transition: all 0.3s ease; }
+    .nav-btn:hover { transform: translateY(-2px); }
+    .card { 
+      background-color: #1F2937; 
+      border-radius: 8px; 
+      box-shadow: 0 4px 6px rgba(0,0,0,0.2); 
+    }
+    .accent-blue { background-color: #4B90E2; }
+    .accent-green { background-color: #2ECC71; }
+    .modal { transition: opacity 0.3s ease; }
+    .chart-container { max-width: 400px; margin: auto; }
+  </style>
+</head>
+<body>
+  <div id="authModal" class="modal fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+    <div class="bg-gray-800 p-6 rounded-lg w-full max-w-md text-white">
+      <h3 class="text-lg font-semibold mb-4">Enter Password</h3>
+      <input type="password" id="userPassword" placeholder="Your personal password" class="p-2 border rounded-lg w-full mb-4 bg-gray-700">
+      <div class="flex justify-end gap-4">
+        <button class="px-4 py-2 accent-green text-white rounded-lg" onclick="authenticate()">Access Tracker</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mainContent" class="container mx-auto p-6 hidden">
+    <!-- Header -->
+    <h1 class="text-4xl font-bold text-center mb-8">Sajil's Personal Budget Tracker</h1>
+
+    <!-- Tabs Navigation -->
+    <div class="flex flex-wrap justify-center mb-6 gap-2">
+      <button class="nav-btn px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600" onclick="showTab('dashboard')">Dashboard</button>
+      <button class="nav-btn px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600" onclick="showTab('income')">Income</button>
+      <button class="nav-btn px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600" onclick="showTab('expenses')">Expenses</button>
+      <button class="nav-btn px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600" onclick="showTab('forecast')">Forecast</button>
+      <button class="nav-btn px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600" onclick="showTab('goals')">Goals</button>
+      <button class="nav-btn px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600" onclick="showTab('summary')">Summary</button>
+    </div>
+
+    <!-- Dashboard Tab -->
+    <div id="dashboard" class="tab-content hidden">
+      <div class="card p-8">
+        <h2 class="text-2xl font-semibold mb-6">Dashboard</h2>
+        <div class="mb-6 flex items-center gap-4">
+          <label class="text-sm font-medium">Month:</label>
+          <select id="monthFilter" class="p-2 border rounded-lg w-40 bg-gray-800 text-white" onchange="updateDashboard()">
+            <option value="January">January</option><option value="February">February</option><option value="March">March</option>
+            <option value="April">April</option><option value="May">May</option><option value="June">June</option>
+            <option value="July">July</option><option value="August">August</option><option value="September">September</option>
+            <option value="October">October</option><option value="November">November</option><option value="December">December</option>
+          </select>
+          <label class="text-sm font-medium">Year:</label>
+          <input type="number" id="yearFilter" class="p-2 border rounded-lg w-20 bg-gray-800 text-white" value="2025" min="2000" max="2100" onchange="updateDashboard()">
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
+          <div class="p-6 bg-gray-800 rounded-lg">
+            <h3 class="text-lg">Total Income</h3>
+            <p id="totalIncome" class="text-3xl font-bold text-accent-green">$0.00</p>
+          </div>
+          <div class="p-6 bg-gray-800 rounded-lg">
+            <h3 class="text-lg">Total Expenses</h3>
+            <p id="totalExpenses" class="text-3xl font-bold text-red-500">$0.00</p>
+          </div>
+          <div id="netSavingsDiv" class="p-6 rounded-lg">
+            <h3 class="text-lg">Net Savings</h3>
+            <p id="netSavings" class="text-3xl font-bold">$0.00</p>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <div class="chart-container">
+            <h3 class="text-lg font-semibold text-center">Income vs. Expenses Trend</h3>
+            <canvas id="trendChart"></canvas>
+          </div>
+          <div class="chart-container">
+            <h3 class="text-lg font-semibold text-center">Expense Breakdown</h3>
+            <canvas id="expenseChart"></canvas>
+          </div>
+          <div class="chart-container">
+            <h3 class="text-lg font-semibold text-center">Category Comparison</h3>
+            <canvas id="categoryChart"></canvas>
+          </div>
+        </div>
+        <div class="mt-6">
+          <h3 class="text-lg font-semibold">Quick Actions</h3>
+          <div class="flex flex-wrap gap-4 mt-4">
+            <button class="px-6 py-3 accent-blue text-white rounded-lg hover:bg-blue-500" onclick="showTab('income')">Add Income</button>
+            <button class="px-6 py-3 accent-blue text-white rounded-lg hover:bg-blue-500" onclick="showTab('expenses')">Add Expense</button>
+            <button class="px-6 py-3 accent-green text-white rounded-lg hover:bg-green-500" onclick="showTab('goals')">Set Goal</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Income Tab -->
+    <div id="income" class="tab-content hidden">
+      <div class="card p-8">
+        <h2 class="text-2xl font-semibold mb-6">Income Tracker</h2>
+        <button class="px-6 py-3 accent-green text-white rounded-lg mb-6" onclick="openModal('incomeModal')">Add Income</button>
+        <table class="w-full border-collapse">
+          <thead>
+            <tr class="bg-gray-700">
+              <th class="p-3 border border-gray-600">Date</th>
+              <th class="p-3 border border-gray-600">Category</th>
+              <th class="p-3 border border-gray-600">Description</th>
+              <th class="p-3 border border-gray-600">Amount</th>
+              <th class="p-3 border border-gray-600">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="incomeTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Expenses Tab -->
+    <div id="expenses" class="tab-content hidden">
+      <div class="card p-8">
+        <h2 class="text-2xl font-semibold mb-6">Expense Tracker</h2>
+        <button class="px-6 py-3 accent-green text-white rounded-lg mb-6" onclick="openModal('expenseModal')">Add Expense</button>
+        <table class="w-full border-collapse">
+          <thead>
+            <tr class="bg-gray-700">
+              <th class="p-3 border border-gray-600">Date</th>
+              <th class="p-3 border border-gray-600">Category</th>
+              <th class="p-3 border border-gray-600">Description</th>
+              <th class="p-3 border border-gray-600">Amount</th>
+              <th class="p-3 border border-gray-600">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="expenseTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Forecast Tab -->
+    <div id="forecast" class="tab-content hidden">
+      <div class="card p-8">
+        <h2 class="text-2xl font-semibold mb-6">Expense Forecast</h2>
+        <div class="mb-6">
+          <h3 class="text-lg font-semibold">Next Month's Anticipated Expenses</h3>
+          <p class="text-sm text-gray-400">Based on 3-month moving average</p>
+          <table class="w-full border-collapse mt-4">
+            <thead>
+              <tr class="bg-gray-700">
+                <th class="p-3 border border-gray-600">Category</th>
+                <th class="p-3 border border-gray-600">Forecasted Amount</th>
+              </tr>
+            </thead>
+            <tbody id="forecastTable"></tbody>
+          </table>
+        </div>
+        <div>
+          <h3 class="text-lg font-semibold">Add Anticipated Expense</h3>
+          <button class="px-6 py-3 accent-green text-white rounded-lg mt-4" onclick="openModal('anticipatedModal')">Add Expense</button>
+          <table class="w-full border-collapse mt-4">
+            <thead>
+              <tr class="bg-gray-700">
+                <th class="p-3 border border-gray-600">Category</th>
+                <th class="p-3 border border-gray-600">Description</th>
+                <th class="p-3 border border-gray-600">Amount</th>
+                <th class="p-3 border border-gray-600">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="anticipatedTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Goals Tab -->
+    <div id="goals" class="tab-content hidden">
+      <div class="card p-8">
+        <h2 class="text-2xl font-semibold mb-6">Savings Goals</h2>
+        <button class="px-6 py-3 accent-green text-white rounded-lg mb-6" onclick="openModal('goalModal')">Add Goal</button>
+        <div class="chart-container mb-6">
+          <h3 class="text-lg font-semibold text-center">Savings Allocation</h3>
+          <canvas id="savingsAllocationChart"></canvas>
+        </div>
+        <div id="goalsList"></div>
+      </div>
+    </div>
+
+    <!-- Summary Tab -->
+    <div id="summary" class="tab-content hidden">
+      <div class="card p-8">
+        <h2 class="text-2xl font-semibold mb-6">Summary</h2>
+        <div class="mb-6 flex items-center gap-4">
+          <label class="text-sm font-medium">Year:</label>
+          <input type="number" id="summaryYearFilter" class="p-2 border rounded-lg w-20 bg-gray-800 text-white" value="2025" min="2000" max="2100" onchange="updateSummary()">
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <div>
+            <h3 class="text-lg font-semibold">Overall Summary</h3>
+            <table class="w-full border-collapse">
+              <thead>
+                <tr class="bg-gray-700">
+                  <th class="p-3 border border-gray-600">Category</th>
+                  <th class="p-3 border border-gray-600">Total Amount</th>
+                </tr>
+              </thead>
+              <tbody id="summaryTable"></tbody>
+            </table>
+          </div>
+          <div class="chart-container">
+            <h3 class="text-lg font-semibold text-center">Savings Trend</h3>
+            <canvas id="savingsChart"></canvas>
+          </div>
+        </div>
+        <div class="mb-8">
+          <h3 class="text-lg font-semibold">Yearly Expense Breakdown</h3>
+          <table class="w-full border-collapse">
+            <thead>
+              <tr class="bg-gray-700">
+                <th class="p-3 border border-gray-600">Category</th>
+                <th class="p-3 border border-gray-600">Total Amount</th>
+                <th class="p-3 border border-gray-600">Percentage</th>
+              </tr>
+            </thead>
+            <tbody id="expenseCategoryTable"></tbody>
+          </table>
+        </div>
+        <div class="chart-container">
+          <h3 class="text-lg font-semibold text-center">Yearly Overview</h3>
+          <canvas id="yearlySummaryChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="incomeModal" class="modal fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center">
+      <div class="bg-gray-800 p-6 rounded-lg w-full max-w-md text-white">
+        <h3 class="text-lg font-semibold mb-4">Add Income</h3>
+        <input type="date" id="incomeDate" class="p-2 border rounded-lg w-full mb-4 bg-gray-700">
+        <select id="incomeCategory" class="p-2 border rounded-lg w-full mb-4 bg-gray-700">
+          <option value="Salary">Salary</option>
+          <option value="Freelance">Freelance</option>
+          <option value="Investment">Investment</option>
+          <option value="Other">Other</option>
+        </select>
+        <input type="text" id="incomeDescription" placeholder="Description" class="p-2 border rounded-lg w-full mb-4 bg-gray-700">
+        <input type="number" id="incomeAmount" placeholder="Amount" step="0.01" class="p-2 border rounded-lg w-full mb-4 bg-gray-700">
+        <div class="flex justify-end gap-4">
+          <button class="px-4 py-2 bg-gray-600 text-white rounded-lg" onclick="closeModal('incomeModal')">Cancel</button>
+          <button class="px-4 py-2 accent-green text-white rounded-lg" onclick="addIncome()">Save</button>
+        </div>
+      </div>
+    </div>
+    <div id="expenseModal" class="modal fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center">
+      <div class="bg-gray-800 p-6 rounded-lg w-full max-w-md text-white">
+        <h3 class="text-lg font-semibold mb-4">Add Expense</h3>
+        <input type="date" id="expenseDate" class="p-2 border rounded-lg w-full mb-4 bg-gray-700">
+        <select id="expenseCategory" class="p-2 border rounded-lg w-full mb-4 bg-gray-700">
+          <option value="Rent">Rent</option>
+          <option value="Mortgage">Mortgage</option>
+          <option value="Utilities">Utilities</option>
+          <option value="Groceries">Groceries</option>
+          <option value="Transport">Transport</option>
+          <option value="Entertainment">Entertainment</option>
+          <option value="Other">Other</option>
+        </select>
+        <input type="text" id="expenseDescription" placeholder="Description" class="p-2 border rounded-lg w-full mb-4 bg-gray-700">
+        <input type="number" id="expenseAmount" placeholder="Amount" step="0.01" class="p-2 border rounded-lg w-full mb-4 bg-gray-700">
+        <div class="flex justify-end gap-4">
+          <button class="px-4 py-2 bg-gray-600 text-white rounded-lg" onclick="closeModal('expenseModal')">Cancel</button>
+          <button class="px-4 py-2 accent-green text-white rounded-lg" onclick="addExpense()">Save</button>
+        </div>
+      </div>
+    </div>
+    <div id="anticipatedModal" class="modal fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center">
+      <div class="bg-gray-800 p-6 rounded-lg w-full max-w-md text-white">
+        <h3 class="text-lg font-semibold mb-4">Add Anticipated Expense</h3>
+        <select id="anticipatedCategory" class="p-2 border rounded-lg w-full mb-4 bg-gray-700">
+          <option value="Rent">Rent</option>
+          <option value="Mortgage">Mortgage</option>
+          <option value="Utilities">Utilities</option>
+          <option value="Groceries">Groceries</option>
+          <option value="Transport">Transport</option>
+          <option value="Entertainment">Entertainment</option>
+          <option value="Other">Other</option>
+        </select>
+        <input type="text" id="anticipatedDescription" placeholder="Description" class="p-2 border rounded-lg w-full mb-4 bg-gray-700">
+        <input type="number" id="anticipatedAmount" placeholder="Amount" step="0.01" class="p-2 border rounded-lg w-full mb-4 bg-gray-700">
+        <div class="flex justify-end gap-4">
+          <button class="px-4 py-2 bg-gray-600 text-white rounded-lg" onclick="closeModal('anticipatedModal')">Cancel</button>
+          <button class="px-4 py-2 accent-green text-white rounded-lg" onclick="addAnticipatedExpense()">Save</button>
+        </div>
+      </div>
+    </div>
+    <div id="goalModal" class="modal fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center">
+      <div class="bg-gray-800 p-6 rounded-lg w-full max-w-md text-white">
+        <h3 class="text-lg font-semibold mb-4">Add Savings Goal</h3>
+        <input type="text" id="goalName" placeholder="Goal Name (e.g., Vacation)" class="p-2 border rounded-lg w-full mb-4 bg-gray-700">
+        <input type="number" id="goalAmount" placeholder="Target Amount" step="0.01" class="p-2 border rounded-lg w-full mb-4 bg-gray-700">
+        <input type="date" id="goalDeadline" class="p-2 border rounded-lg w-full mb-4 bg-gray-700">
+        <div class="flex justify-end gap-4">
+          <button class="px-4 py-2 bg-gray-600 text-white rounded-lg" onclick="closeModal('goalModal')">Cancel</button>
+          <button class="px-4 py-2 accent-green text-white rounded-lg" onclick="addGoal()">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Firebase Configuration (Replace with your own Firebase project config)
+    const firebaseConfig = {
+  apiKey: "AIzaSyDkMTBs6rrzdRznOSKcl0iBXg9Vmv803AI",
+  authDomain: "sajil-s-budget-tracker.firebaseapp.com",
+  projectId: "sajil-s-budget-tracker",
+  storageBucket: "sajil-s-budget-tracker.firebasestorage.app",
+  messagingSenderId: "302667792287",
+  appId: "1:302667792287:web:2c8e8af57081783c8007aa",
+  measurementId: "G-ZCJ74H4B3B"
+};
+
+    // Initialize Firebase
+    const app = firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    let userId = null; // Will be set after authentication
+
+    let incomeData = [];
+    let expenseData = [];
+    let anticipatedExpenses = [];
+    let goals = [];
+    let trendChart, expenseChart, categoryChart, savingsChart, yearlySummaryChart, savingsAllocationChart;
+
+    async function authenticate() {
+      const password = document.getElementById('userPassword').value;
+      if (!password) {
+        alert('Please enter a password.');
+        return;
+      }
+      // Generate a userId based on password hash (simple for single-user)
+      userId = btoa(password); // Base64 encode for simplicity
+      document.getElementById('authModal').classList.add('hidden');
+      document.getElementById('mainContent').classList.remove('hidden');
+      // Load data for this user
+      await loadData();
+      showTab('dashboard');
+    }
+
+    async function loadData() {
+      if (!userId) return;
+      // Load income
+      const incomeSnapshot = await db.collection('users').doc(userId).collection('income').get();
+      incomeData = incomeSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Load expenses
+      const expenseSnapshot = await db.collection('users').doc(userId).collection('expenses').get();
+      expenseData = expenseSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Load anticipated expenses
+      const anticipatedSnapshot = await db.collection('users').doc(userId).collection('anticipated').get();
+      anticipatedExpenses = anticipatedSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Load goals
+      const goalsSnapshot = await db.collection('users').doc(userId).collection('goals').get();
+      goals = goalsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Initialize with sample data if empty
+      if (incomeData.length === 0) {
+        incomeData = [
+          { id: '1', date: '2025-01-01', category: 'Salary', description: 'Monthly Salary', amount: 3000 },
+          { id: '2', date: '2025-01-05', category: 'Freelance', description: 'Project Payment', amount: 500 }
+        ];
+        for (const item of incomeData) {
+          await db.collection('users').doc(userId).collection('income').doc(item.id).set(item);
+        }
+      }
+      if (expenseData.length === 0) {
+        expenseData = [
+          { id: '1', date: '2025-01-02', category: 'Rent', description: 'Apartment Rent', amount: 1200 },
+          { id: '2', date: '2025-01-03', category: 'Groceries', description: 'Weekly Shopping', amount: 150 }
+        ];
+        for (const item of expenseData) {
+          await db.collection('users').doc(userId).collection('expenses').doc(item.id).set(item);
+        }
+      }
+    }
+
+    function showTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(tab => tab.classList.add('hidden'));
+      document.getElementById(tabId).classList.remove('hidden');
+      if (tabId === 'dashboard') updateDashboard();
+      if (tabId === 'income') renderIncomeTable();
+      if (tabId === 'expenses') renderExpenseTable();
+      if (tabId === 'forecast') updateForecast();
+      if (tabId === 'goals') renderGoals();
+      if (tabId === 'summary') updateSummary();
+    }
+
+    function openModal(modalId) {
+      document.getElementById(modalId).classList.remove('hidden');
+    }
+
+    function closeModal(modalId) {
+      document.getElementById(modalId).classList.add('hidden');
+    }
+
+    async function addIncome() {
+      const date = document.getElementById('incomeDate').value;
+      const category = document.getElementById('incomeCategory').value;
+      const description = document.getElementById('incomeDescription').value;
+      const amount = parseFloat(document.getElementById('incomeAmount').value);
+      if (date && description && !isNaN(amount)) {
+        const id = Date.now().toString(); // Unique ID
+        const item = { id, date, category, description, amount };
+        incomeData.push(item);
+        await db.collection('users').doc(userId).collection('income').doc(id).set(item);
+        renderIncomeTable();
+        closeModal('incomeModal');
+        updateDashboard();
+        updateSummary();
+      }
+    }
+
+    async function addExpense() {
+      const date = document.getElementById('expenseDate').value;
+      const category = document.getElementById('expenseCategory').value;
+      const description = document.getElementById('expenseDescription').value;
+      const amount = parseFloat(document.getElementById('expenseAmount').value);
+      if (date && description && !isNaN(amount)) {
+        const id = Date.now().toString();
+        const item = { id, date, category, description, amount };
+        expenseData.push(item);
+        await db.collection('users').doc(userId).collection('expenses').doc(id).set(item);
+        renderExpenseTable();
+        closeModal('expenseModal');
+        updateDashboard();
+        updateSummary();
+      }
+    }
+
+    async function addAnticipatedExpense() {
+      const category = document.getElementById('anticipatedCategory').value;
+      const description = document.getElementById('anticipatedDescription').value;
+      const amount = parseFloat(document.getElementById('anticipatedAmount').value);
+      if (description && !isNaN(amount)) {
+        const id = Date.now().toString();
+        const item = { id, category, description, amount };
+        anticipatedExpenses.push(item);
+        await db.collection('users').doc(userId).collection('anticipated').doc(id).set(item);
+        renderAnticipatedTable();
+        closeModal('anticipatedModal');
+      }
+    }
+
+    async function addGoal() {
+      const name = document.getElementById('goalName').value;
+      const amount = parseFloat(document.getElementById('goalAmount').value);
+      const deadline = document.getElementById('goalDeadline').value;
+      if (name && !isNaN(amount) && deadline) {
+        const id = Date.now().toString();
+        const item = { id, name, amount, deadline, saved: 0 };
+        goals.push(item);
+        await db.collection('users').doc(userId).collection('goals').doc(id).set(item);
+        renderGoals();
+        closeModal('goalModal');
+      }
+    }
+
+    function renderIncomeTable() {
+      const tbody = document.getElementById('incomeTable');
+      tbody.innerHTML = '';
+      incomeData.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="p-3 border border-gray-600">${item.date}</td>
+          <td class="p-3 border border-gray-600">${item.category}</td>
+          <td class="p-3 border border-gray-600">${item.description}</td>
+          <td class="p-3 border border-gray-600">$${item.amount.toFixed(2)}</td>
+          <td class="p-3 border border-gray-600">
+            <button class="px-2 py-1 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600" onclick="editIncome('${item.id}')">Edit</button>
+            <button class="px-2 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600" onclick="deleteIncome('${item.id}')">Delete</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderExpenseTable() {
+      const tbody = document.getElementById('expenseTable');
+      tbody.innerHTML = '';
+      expenseData.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="p-3 border border-gray-600">${item.date}</td>
+          <td class="p-3 border border-gray-600">${item.category}</td>
+          <td class="p-3 border border-gray-600">${item.description}</td>
+          <td class="p-3 border border-gray-600">$${item.amount.toFixed(2)}</td>
+          <td class="p-3 border border-gray-600">
+            <button class="px-2 py-1 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600" onclick="editExpense('${item.id}')">Edit</button>
+            <button class="px-2 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600" onclick="deleteExpense('${item.id}')">Delete</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderAnticipatedTable() {
+      const tbody = document.getElementById('anticipatedTable');
+      tbody.innerHTML = '';
+      anticipatedExpenses.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="p-3 border border-gray-600">${item.category}</td>
+          <td class="p-3 border border-gray-600">${item.description}</td>
+          <td class="p-3 border border-gray-600">$${item.amount.toFixed(2)}</td>
+          <td class="p-3 border border-gray-600">
+            <button class="px-2 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600" onclick="deleteAnticipated('${item.id}')">Delete</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderGoals() {
+      const container = document.getElementById('goalsList');
+      container.innerHTML = '';
+      goals.forEach(goal => {
+        const progress = (goal.saved / goal.amount) * 100;
+        const div = document.createElement('div');
+        div.className = 'mb-6 p-6 bg-gray-800 rounded-lg';
+        div.innerHTML = `
+          <h4 class="text-lg font-semibold">${goal.name}</h4>
+          <p class="text-sm text-gray-400">Target: $${goal.amount.toFixed(2)} | Deadline: ${goal.deadline}</p>
+          <p class="text-sm text-gray-400">Saved: $${goal.saved.toFixed(2)} (${progress.toFixed(1)}%)</p>
+          <div class="w-full bg-gray-600 rounded-full h-2.5 mt-2">
+            <div class="bg-accent-green h-2.5 rounded-full" style="width: ${progress}%"></div>
+          </div>
+          <div class="flex gap-4 mt-4">
+            <input type="number" id="saveGoal${goal.id}" placeholder="Add savings" step="0.01" class="p-2 border rounded-lg w-32 bg-gray-700">
+            <button class="px-4 py-2 accent-green text-white rounded-lg" onclick="addSavings('${goal.id}')">Add Savings</button>
+            <button class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600" onclick="deleteGoal('${goal.id}')">Delete Goal</button>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+
+      // Savings Allocation Chart
+      if (savingsAllocationChart) savingsAllocationChart.destroy();
+      const goalData = goals.map(goal => goal.saved);
+      const goalLabels = goals.map(goal => goal.name);
+      savingsAllocationChart = new Chart(document.getElementById('savingsAllocationChart'), {
+        type: 'doughnut',
+        data: {
+          labels: goalLabels.length ? goalLabels : ['No Goals'],
+          datasets: [{
+            data: goalData.length ? goalData : [1],
+            backgroundColor: ['#4B90E2', '#2ECC71', '#F59E0B', '#EF4444', '#8B5CF6']
+          }]
+        },
+        options: {
+          plugins: { legend: { position: 'bottom', labels: { color: '#D2B48C' } } },
+          cutout: '60%'
+        }
+      });
+    }
+
+    async function editIncome(id) {
+      const item = incomeData.find(i => i.id === id);
+      if (item) {
+        document.getElementById('incomeDate').value = item.date;
+        document.getElementById('incomeCategory').value = item.category;
+        document.getElementById('incomeDescription').value = item.description;
+        document.getElementById('incomeAmount').value = item.amount;
+        openModal('incomeModal');
+        await deleteIncome(id);
+      }
+    }
+
+    async function editExpense(id) {
+      const item = expenseData.find(i => i.id === id);
+      if (item) {
+        document.getElementById('expenseDate').value = item.date;
+        document.getElementById('expenseCategory').value = item.category;
+        document.getElementById('expenseDescription').value = item.description;
+        document.getElementById('expenseAmount').value = item.amount;
+        openModal('expenseModal');
+        await deleteExpense(id);
+      }
+    }
+
+    async function deleteIncome(id) {
+      incomeData = incomeData.filter(i => i.id !== id);
+      await db.collection('users').doc(userId).collection('income').doc(id).delete();
+      renderIncomeTable();
+      updateDashboard();
+      updateSummary();
+    }
+
+    async function deleteExpense(id) {
+      expenseData = expenseData.filter(e => e.id !== id);
+      await db.collection('users').doc(userId).collection('expenses').doc(id).delete();
+      renderExpenseTable();
+      updateDashboard();
+      updateSummary();
+    }
+
+    async function deleteAnticipated(id) {
+      anticipatedExpenses = anticipatedExpenses.filter(e => e.id !== id);
+      await db.collection('users').doc(userId).collection('anticipated').doc(id).delete();
+      renderAnticipatedTable();
+    }
+
+    async function deleteGoal(id) {
+      goals = goals.filter(g => g.id !== id);
+      await db.collection('users').doc(userId).collection('goals').doc(id).delete();
+      renderGoals();
+    }
+
+    async function addSavings(id) {
+      const input = document.getElementById(`saveGoal${id}`);
+      const amount = parseFloat(input.value);
+      if (!isNaN(amount) && amount > 0) {
+        const goal = goals.find(g => g.id === id);
+        if (goal) {
+          goal.saved += amount;
+          await db.collection('users').doc(userId).collection('goals').doc(id).update({ saved: goal.saved });
+          renderGoals();
+        }
+      }
+      input.value = '';
+    }
+
+    function updateDashboard() {
+      const month = document.getElementById('monthFilter').value;
+      const year = parseInt(document.getElementById('yearFilter').value);
+      const monthIndex = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].indexOf(month) + 1;
+
+      const totalIncome = incomeData
+        .filter(item => new Date(item.date).getFullYear() === year && new Date(item.date).getMonth() + 1 === monthIndex)
+        .reduce((sum, item) => sum + item.amount, 0);
+
+      const totalExpenses = expenseData
+        .filter(item => new Date(item.date).getFullYear() === year && new Date(item.date).getMonth() + 1 === monthIndex)
+        .reduce((sum, item) => sum + item.amount, 0);
+
+      const netSavings = totalIncome - totalExpenses;
+
+      document.getElementById('totalIncome').textContent = `$${totalIncome.toFixed(2)}`;
+      document.getElementById('totalExpenses').textContent = `$${totalExpenses.toFixed(2)}`;
+      document.getElementById('netSavings').textContent = `$${netSavings.toFixed(2)}`;
+      document.getElementById('netSavingsDiv').classList.remove('bg-red-100', 'bg-green-100');
+      document.getElementById('netSavingsDiv').classList.add(netSavings < 0 ? 'bg-red-100' : 'bg-green-100');
+
+      // Trend Chart
+      const last6Months = Array(6).fill(0).map((_, i) => {
+        const date = new Date(year, monthIndex - 1 - i);
+        return { year: date.getFullYear(), month: date.getMonth() + 1 };
+      }).reverse();
+      const incomeTrend = last6Months.map(m => incomeData
+        .filter(item => new Date(item.date).getFullYear() === m.year && new Date(item.date).getMonth() + 1 === m.month)
+        .reduce((sum, item) => sum + item.amount, 0));
+      const expenseTrend = last6Months.map(m => expenseData
+        .filter(item => new Date(item.date).getFullYear() === m.year && new Date(item.date).getMonth() + 1 === m.month)
+        .reduce((sum, item) => sum + item.amount, 0));
+
+      if (trendChart) trendChart.destroy();
+      trendChart = new Chart(document.getElementById('trendChart'), {
+        type: 'line',
+        data: {
+          labels: last6Months.map(m => new Date(m.year, m.month - 1).toLocaleString('default', { month: 'short' })),
+          datasets: [
+            { label: 'Income', data: incomeTrend, borderColor: '#2ECC71', fill: false },
+            { label: 'Expenses', data: expenseTrend, borderColor: '#EF4444', fill: false }
+          ]
+        },
+        options: { plugins: { legend: { position: 'bottom', labels: { color: '#D2B48C' } } } }
+      });
+
+      // Expense Chart (Smaller Doughnut)
+      const expenseCategories = ['Rent', 'Mortgage', 'Utilities', 'Groceries', 'Transport', 'Entertainment', 'Other'];
+      const expenseDataByCategory = expenseCategories.map(category =>
+        expenseData
+          .filter(item => item.category === category && new Date(item.date).getFullYear() === year && new Date(item.date).getMonth() + 1 === monthIndex)
+          .reduce((sum, item) => sum + item.amount, 0)
+      );
+
+      if (expenseChart) expenseChart.destroy();
+      expenseChart = new Chart(document.getElementById('expenseChart'), {
+        type: 'doughnut',
+        data: {
+          labels: expenseCategories,
+          datasets: [{
+            data: expenseDataByCategory,
+            backgroundColor: ['#EF4444', '#F59E0B', '#2ECC71', '#4B90E2', '#8B5CF6', '#EC4899', '#6B7280']
+          }]
+        },
+        options: {
+          plugins: { legend: { position: 'bottom', labels: { color: '#D2B48C' } } },
+          cutout: '60%'
+        }
+      });
+
+      // Category Comparison Chart
+      const incomeDataByCategory = ['Salary', 'Freelance', 'Investment', 'Other'].map(category =>
+        incomeData
+          .filter(item => item.category === category && new Date(item.date).getFullYear() === year && new Date(item.date).getMonth() + 1 === monthIndex)
+          .reduce((sum, item) => sum + item.amount, 0)
+      );
+
+      if (categoryChart) categoryChart.destroy();
+      categoryChart = new Chart(document.getElementById('categoryChart'), {
+        type: 'bar',
+        data: {
+          labels: expenseCategories,
+          datasets: [
+            { label: 'Expenses', data: expenseDataByCategory, backgroundColor: '#EF4444' },
+            { label: 'Income', data: incomeDataByCategory.slice(0, expenseCategories.length), backgroundColor: '#2ECC71' }
+          ]
+        },
+        options: {
+          plugins: { legend: { position: 'bottom', labels: { color: '#D2B48C' } } },
+          scales: { y: { beginAtZero: true, ticks: { color: '#D2B48C' } }, x: { ticks: { color: '#D2B48C' } } }
+        }
+      });
+    }
+
+    function updateForecast() {
+      const currentDate = new Date();
+      const nextMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1);
+      const year = nextMonth.getFullYear();
+      const monthIndex = nextMonth.getMonth() + 1;
+
+      const last3Months = Array(3).fill(0).map((_, i) => {
+        const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i);
+        return { year: date.getFullYear(), month: date.getMonth() + 1 };
+      });
+      const expenseCategories = ['Rent', 'Mortgage', 'Utilities', 'Groceries', 'Transport', 'Entertainment', 'Other'];
+      const forecastData = expenseCategories.map(category => {
+        const amounts = last3Months.map(m => expenseData
+          .filter(item => item.category === category && new Date(item.date).getFullYear() === m.year && new Date(item.date).getMonth() + 1 === m.month)
+          .reduce((sum, item) => sum + item.amount, 0));
+        const average = amounts.reduce((sum, val) => sum + val, 0) / amounts.length || 0;
+        return { category, amount: average };
+      });
+
+      const tbody = document.getElementById('forecastTable');
+      tbody.innerHTML = '';
+      forecastData.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="p-3 border border-gray-600">${item.category}</td>
+          <td class="p-3 border border-gray-600">$${item.amount.toFixed(2)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      renderAnticipatedTable();
+    }
+
+    function updateSummary() {
+      const year = parseInt(document.getElementById('summaryYearFilter').value);
+
+      const totalIncome = incomeData
+        .filter(item => new Date(item.date).getFullYear() === year)
+        .reduce((sum, item) => sum + item.amount, 0);
+
+      const totalExpenses = expenseData
+        .filter(item => new Date(item.date).getFullYear() === year)
+        .reduce((sum, item) => sum + item.amount, 0);
+
+      const netSavings = totalIncome - totalExpenses;
+
+      const summaryTable = document.getElementById('summaryTable');
+      summaryTable.innerHTML = `
+        <tr>
+          <td class="p-3 border border-gray-600">Total Income</td>
+          <td class="p-3 border border-gray-600">$${totalIncome.toFixed(2)}</td>
+        </tr>
+        <tr>
+          <td class="p-3 border border-gray-600">Total Expenses</td>
+          <td class="p-3 border border-gray-600">$${totalExpenses.toFixed(2)}</td>
+        </tr>
+        <tr>
+          <td class="p-3 border border-gray-600 font-bold">Net Savings</td>
+          <td class="p-3 border border-gray-600 font-bold ${netSavings < 0 ? 'text-red-500' : 'text-accent-green'}">$${netSavings.toFixed(2)}</td>
+        </tr>
+      `;
+
+      const expenseCategories = ['Rent', 'Mortgage', 'Utilities', 'Groceries', 'Transport', 'Entertainment', 'Other'];
+      const expenseDataByCategory = expenseCategories.map(category => {
+        const total = expenseData
+          .filter(item => item.category === category && new Date(item.date).getFullYear() === year)
+          .reduce((sum, item) => sum + item.amount, 0);
+        const percentage = totalExpenses ? (total / totalExpenses * 100).toFixed(2) : 0;
+        return { category, total, percentage };
+      });
+
+      const tbody = document.getElementById('expenseCategoryTable');
+      tbody.innerHTML = '';
+      expenseDataByCategory.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="p-3 border border-gray-600">${item.category}</td>
+          <td class="p-3 border border-gray-600">$${item.total.toFixed(2)}</td>
+          <td class="p-3 border border-gray-600">${item.percentage}%</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // Savings Trend Chart
+      const monthlySavings = Array(12).fill(0).map((_, i) => {
+        const monthIndex = i + 1;
+        const income = incomeData
+          .filter(item => new Date(item.date).getFullYear() === year && new Date(item.date).getMonth() + 1 === monthIndex)
+          .reduce((sum, item) => sum + item.amount, 0);
+        const expenses = expenseData
+          .filter(item => new Date(item.date).getFullYear() === year && new Date(item.date).getMonth() + 1 === monthIndex)
+          .reduce((sum, item) => sum + item.amount, 0);
+        return income - expenses;
+      });
+
+      if (savingsChart) savingsChart.destroy();
+      savingsChart = new Chart(document.getElementById('savingsChart'), {
+        type: 'line',
+        data: {
+          labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+          datasets: [{
+            label: 'Net Savings',
+            data: monthlySavings,
+            borderColor: '#4B90E2',
+            fill: false
+          }]
+        },
+        options: { plugins: { legend: { position: 'bottom', labels: { color: '#D2B48C' } } }, scales: { y: { ticks: { color: '#D2B48C' } }, x: { ticks: { color: '#D2B48C' } } } }
+      });
+
+      // Yearly Summary Chart
+      if (yearlySummaryChart) yearlySummaryChart.destroy();
+      yearlySummaryChart = new Chart(document.getElementById('yearlySummaryChart'), {
+        type: 'bar',
+        data: {
+          labels: ['Income', 'Expenses', 'Net Savings'],
+          datasets: [{
+            label: 'Yearly Overview',
+            data: [totalIncome, totalExpenses, netSavings],
+            backgroundColor: ['#2ECC71', '#EF4444', netSavings < 0 ? '#EF4444' : '#4B90E2']
+          }]
+        },
+        options: { plugins: { legend: { position: 'bottom', labels: { color: '#D2B48C' } } }, scales: { y: { beginAtZero: true, ticks: { color: '#D2B48C' } }, x: { ticks: { color: '#D2B48C' } } } }
+      });
+    }
+
+    // Initialize
+    document.getElementById('monthFilter').value = 'January';
+    document.getElementById('yearFilter').value = '2025';
+    document.getElementById('summaryYearFilter').value = '2025';
+  </script>
+</body>
+</html>
